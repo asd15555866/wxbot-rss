@@ -1,0 +1,43 @@
+name = "rss-bot"
+main = "src/worker.js"
+compatibility_date = "2024-07-01"
+
+# D1 数据库绑定
+[[d1_databases]]
+binding = "DB"
+database_name = "rss-bot-db"
+database_id = "数据库id"
+
+# 环境变量
+[vars]
+DEEPSEEK_API_KEY = "deepseek-api"
+HUB_URL = "https://hub.openilink.com" # ilink地址
+APP_TOKEN = "app_d65cbceb6c47dbae8a52564c43a53bd94194d411934cb37800dc570074d7f896" # token
+BOT_ID = ""
+
+# 放置地区环境变量
+[placement]
+region = "azure:japaneast"
+
+# 自定义域名
+routes = [
+  { pattern = "自定义域名", custom_domain = true }
+]
+
+# Cron 定时任务
+triggers = { crons = ["*/30 * * * *"] }
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
