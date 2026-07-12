@@ -203,7 +203,9 @@ export class RSSParser {
         const forumItems = this.parseForumRSS(xmlText);
         if (forumItems.length > 0) return forumItems;
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('特殊格式解析失败:', e.message);
+    }
     return items;
   }
 
@@ -237,7 +239,9 @@ export class RSSParser {
           if (item.title) items.push(item);
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Discourse RSS 解析失败:', e.message);
+    }
     return items;
   }
 
@@ -254,7 +258,9 @@ export class RSSParser {
           if (item.title) items.push(item);
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('论坛 RSS 解析失败:', e.message);
+    }
     return items;
   }
 
@@ -268,7 +274,9 @@ export class RSSParser {
       try {
         const item = isAtom ? this.parseAtomEntry(itemXml) : this.parseRSSItem(itemXml);
         if (item.title && item.guid) items.push(item);
-      } catch (e) {}
+      } catch (e) {
+        console.warn('RSS 条目解析失败:', e.message);
+      }
     }
     return items.slice(0, 10);
   }

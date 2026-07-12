@@ -4,7 +4,16 @@ import { DBManager } from './db-manager.js';
 import { RSSParser } from './rss-parser.js';
 
 export async function handleHubWebhook(request, env) {
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch (error) {
+    console.error('解析 Hub Webhook 请求失败:', error.message);
+    return new Response(JSON.stringify({ ok: false, error: 'invalid json' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
   const event = body;
   
   // 只处理 command 事件
@@ -26,11 +35,16 @@ if (event.type === 'event' && event.event?.type === 'command') {
     const userId = senderId;
     
     // 根据命令分发处理
-    let reply = await handleHubCommand(command, args, userId, env);
-    
-    // 如果有回复，发送给用户
-    if (reply) {
-      await sendHubReply(event, reply, env);
+    try {
+      let reply = await handleHubCommand(command, args, userId, env);
+      
+      // 如果有回复，发送给用户
+      if (reply) {
+        await sendHubReply(event, reply, env);
+      }
+    } catch (error) {
+      console.error('处理 Hub 命令失败:', error);
+      return new Response(JSON.stringify({ ok: false }), { status: 500 });
     }
     
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -241,10 +255,12 @@ async function handleCheckFeedsCommand(userId, env) {
           const exists = await dbManager.checkItemExists(sub.rss_url, item.guid);
           if (!exists) {
             // 推送给用户
-            await bot.sendRSSUpdate(userId, sub.rss_url, item, sub.site_name);
-            await dbManager.saveRSSItem(sub.rss_url, item);
-            newCount++;
-            await new Promise(r => setTimeout(r, 300));
+            const res = await bot.sendRSSUpdate(userId, sub.rss_url, item, sub.site_name);
+            if (res && res.delivered) {
+              await dbManager.saveRSSItem(sub.rss_url, item);
+              newCount++;
+              await new Promise(r => setTimeout(r, 300));
+            }
           }
         }
         

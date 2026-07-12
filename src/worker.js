@@ -88,18 +88,24 @@ export default {
                   const exists = await dbManager.checkItemExists(rssUrl, item.guid);
                   if (exists) continue;
 
+                  let anyDelivered = false;
                   for (const sub of subsForUrl) {
                     try {
-                      await bot.sendRSSUpdate(sub.user_id, rssUrl, item, siteName);
+                      const res = await bot.sendRSSUpdate(sub.user_id, rssUrl, item, siteName);
+                      if (res && res.delivered) anyDelivered = true;
                       await new Promise(resolve => setTimeout(resolve, 150));
                     } catch (error) {
                       console.error(`推送给用户 ${sub.user_id} 失败:`, error.message);
                     }
                   }
                   
-                  await dbManager.saveRSSItem(rssUrl, item);
-                  processedCount++;
-                  await new Promise(resolve => setTimeout(resolve, 300));
+                  if (anyDelivered) {
+                    await dbManager.saveRSSItem(rssUrl, item);
+                    processedCount++;
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                  } else {
+                    console.warn('推送全部失败，暂不标记为已读，下次重试:', item.guid || item.title);
+                  }
                 } catch (error) {
                   console.error(`处理RSS项目失败:`, error.message);
                 }

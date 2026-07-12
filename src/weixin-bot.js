@@ -23,7 +23,7 @@ export class WeixinBot {
     try {
       title = await this.translateTitle(item.title);
     } catch (e) {
-      // 翻译失败则保留原标题
+      console.warn('翻译标题失败，保留原标题:', e.message);
     }
 
     const link = item.link || '';
@@ -59,66 +59,80 @@ export class WeixinBot {
     
     console.log(`用户 ${ownerUserId} 推送模式: ${pushMode}, 绑定目标: ${chatIds.length}个`);
     
-    let sentToPrivate = false;
-    let sentToTargets = 0;
+    let attempted = 0, succeeded = 0, failed = 0;
+    const sendPrivate = async () => {
+      attempted++;
+      try {
+        await this.sendRSSItem(ownerUserId, item, siteName);
+        succeeded++;
+      } catch (e) {
+        failed++;
+        console.warn('推送到私聊失败', ownerUserId, e.message);
+      }
+    };
     
     switch (pushMode) {
       case 'smart':
         if (chatIds.length === 0) {
-          await this.sendRSSItem(ownerUserId, item, siteName);
-          sentToPrivate = true;
+          await sendPrivate();
         } else {
           for (const chatId of chatIds) {
+            const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
+            if (already) continue;
             try {
-              const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
-              if (already) continue;
+              attempted++;
               await this.sendRSSItem(chatId, item, siteName);
               await this.dbManager.savePushRecord(rssUrl, item.guid, chatId);
-              sentToTargets++;
+              succeeded++;
               await new Promise(r => setTimeout(r, 200));
             } catch (e) {
+              failed++;
               console.warn('推送到目标失败', chatId, e.message);
             }
           }
         }
         break;
       case 'both':
-        await this.sendRSSItem(ownerUserId, item, siteName);
-        sentToPrivate = true;
+        await sendPrivate();
         for (const chatId of chatIds) {
+          const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
+          if (already) continue;
           try {
-            const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
-            if (already) continue;
+            attempted++;
             await this.sendRSSItem(chatId, item, siteName);
             await this.dbManager.savePushRecord(rssUrl, item.guid, chatId);
-            sentToTargets++;
+            succeeded++;
             await new Promise(r => setTimeout(r, 200));
           } catch (e) {
+            failed++;
             console.warn('推送到目标失败', chatId, e.message);
           }
         }
         break;
       case 'private':
-        await this.sendRSSItem(ownerUserId, item, siteName);
-        sentToPrivate = true;
+        await sendPrivate();
         break;
       case 'targets':
         for (const chatId of chatIds) {
+          const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
+          if (already) continue;
           try {
-            const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
-            if (already) continue;
+            attempted++;
             await this.sendRSSItem(chatId, item, siteName);
             await this.dbManager.savePushRecord(rssUrl, item.guid, chatId);
-            sentToTargets++;
+            succeeded++;
             await new Promise(r => setTimeout(r, 200));
           } catch (e) {
+            failed++;
             console.warn('推送到目标失败', chatId, e.message);
           }
         }
         break;
     }
     
-    console.log(`推送完成：私聊${sentToPrivate ? '✅' : '❌'}, 目标${sentToTargets}个`);
+    const delivered = succeeded > 0 || attempted === 0;
+    console.log(`推送完成：尝试${attempted}次，成功${succeeded}次，失败${failed}次`);
+    return { attempted, succeeded, failed, delivered };
   }
 
   // ===== AI 总结 =====
@@ -157,7 +171,9 @@ export class WeixinBot {
 
     if (!response.ok) throw new Error(`AI API 请求失败: ${response.status}`);
     const data = await response.json();
-    return data.choices[0].message.content.trim();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) throw new Error('AI API 返回内容为空或格式异常');
+    return content.trim();
   }
 
   // ===== 标题翻译 =====
@@ -192,7 +208,7 @@ export class WeixinBot {
 
       if (!response.ok) throw new Error(`翻译API请求失败: ${response.status}`);
       const data = await response.json();
-      let translated = data.choices[0].message.content.trim();
+      const translated = data?.choices?.[0]?.message?.content?.trim();
       if (!translated) return title;
       return translated;
     } catch (error) {
@@ -208,8 +224,7 @@ export class WeixinBot {
     const APP_TOKEN = this.env?.APP_TOKEN;
     
     if (!HUB_URL || !APP_TOKEN) {
-      console.error('[sendViaILink] 缺少环境变量 HUB_URL 或 APP_TOKEN');
-      return;
+      throw new Error('[sendViaILink] 缺少环境变量 HUB_URL 或 APP_TOKEN');
     }
     
     const TO_USER_ID = 'o9cq80-CwnZEH3pANf4ct59vCTlo@im.wechat';
@@ -229,13 +244,15 @@ export class WeixinBot {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('[sendViaILink] 发送失败:', response.status, errorText);
-        return;
+        throw new Error(`[sendViaILink] 发送失败: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
       console.log('[sendViaILink] 发送成功:', result);
+      return true;
     } catch (error) {
       console.error('[sendViaILink] 调用 Hub API 出错:', error.message);
+      throw error;
     }
   }
 
