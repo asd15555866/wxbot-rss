@@ -1,0 +1,15 @@
+{
+  "name": "wxbot-rss",
+  "version": "1.0.0",
+  "description": "连接Clawbot的一个rss订阅机器人，使用ilink推送到微信。",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.9",
+    "vitest": "^2.1.9"
+  }
+}
