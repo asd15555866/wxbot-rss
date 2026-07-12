@@ -1,0 +1,3 @@
+DEEPSEEK_API_KEY=your-deepseek-api-key
+APP_TOKEN=your-ilink-app-token
+WEBHOOK_SECRET=generate-a-long-random-string

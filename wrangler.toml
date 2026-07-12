@@ -8,12 +8,17 @@ binding = "DB"
 database_name = "rss-bot-db"
 database_id = "数据库id"
 
-# 环境变量
+# 非敏感环境变量（可公开）
 [vars]
-DEEPSEEK_API_KEY = "deepseek-api"
 HUB_URL = "https://hub.openilink.com" # ilink地址
-APP_TOKEN = "app_d65cbceb6c47dbae8a52564c43a53bd94194d411934cb37800dc570074d7f896" # token
 BOT_ID = ""
+
+# 敏感信息（DEEPSEEK_API_KEY、APP_TOKEN、WEBHOOK_SECRET）不要写在这里！
+# 请使用 Cloudflare Secrets 存储，不会被提交到仓库：
+#   wrangler secret put DEEPSEEK_API_KEY
+#   wrangler secret put APP_TOKEN
+#   wrangler secret put WEBHOOK_SECRET
+# 本地开发时放入 .dev.vars（已在 .gitignore 中忽略），参考 .dev.vars.example
 
 # 放置地区环境变量
 [placement]

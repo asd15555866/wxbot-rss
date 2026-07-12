@@ -3,9 +3,44 @@ import { RSSParser } from './rss-parser.js';
 import { DBManager } from './db-manager.js';
 import { handleHubWebhook } from './hub-webhook.js';
 
+function constantTimeEqual(expected, provided) {
+  if (expected.length !== provided.length) {
+    return false;
+  }
+
+  let difference = 0;
+  for (let i = 0; i < expected.length; i++) {
+    difference |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
+  }
+  return difference === 0;
+}
+
+function isAuthorized(url, request, env) {
+  const expectedSecret = env.WEBHOOK_SECRET;
+  if (!expectedSecret) {
+    console.error('WEBHOOK_SECRET 未配置');
+    return false;
+  }
+
+  const headerSecret = request.headers.get('X-Webhook-Secret');
+  const querySecret = url.searchParams.get('secret');
+  return [headerSecret, querySecret]
+    .filter(secret => secret !== null)
+    .some(secret => constantTimeEqual(expectedSecret, secret));
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if (
+      (url.pathname === '/hub/webhook' && request.method === 'POST') ||
+      (url.pathname === '/check-rss' && request.method === 'GET')
+    ) {
+      if (!isAuthorized(url, request, env)) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+    }
     
     // 初始化数据库表
     try {
