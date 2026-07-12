@@ -1,3 +1,5 @@
+import { sleep } from './utils.js';
+
 export class RSSParser {
   constructor(env) {
     this.rateLimitMap = new Map();
@@ -90,10 +92,7 @@ export class RSSParser {
         if (items.length === 0) {
           const specialItems = await this.trySpecialFormats(url, cleanedXML);
           if (specialItems.length > 0) {
-            for (let i = 0; i < Math.min(specialItems.length, 3); i++) {
-              const item = specialItems[i];
-              item.fullContent = item.link ? (await this.fetchFullContent(item.link) || item.description || '') : (item.description || '');
-            }
+            await this.hydrateFullContent(specialItems);
             this.recordSuccess(url);
             console.log(`✅ 特殊解析成功，${specialItems.length} 条`);
             return specialItems;
@@ -105,10 +104,7 @@ export class RSSParser {
           throw new Error('未找到任何条目');
         }
 
-        for (let i = 0; i < Math.min(items.length, 3); i++) {
-          const item = items[i];
-          item.fullContent = item.link ? (await this.fetchFullContent(item.link) || item.description || '') : (item.description || '');
-        }
+        await this.hydrateFullContent(items);
 
         this.recordSuccess(url);
         console.log(`✅ 成功解析 ${url}，${items.length} 条`);
@@ -120,7 +116,7 @@ export class RSSParser {
         if (attempt < maxRetries) {
           const delay = Math.min(Math.pow(2, attempt) * 1000, 10000);
           console.log(`⏳ ${delay}ms 后重试...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await sleep(delay);
         }
       }
     }
@@ -128,6 +124,14 @@ export class RSSParser {
     this.recordFailure(url);
     console.error(`❌ 所有尝试失败 ${url}: ${lastError || 'Unknown'}`);
     return [];
+  }
+
+  // 为前 N 条条目拉取正文，无正文时回退到描述/空串
+  async hydrateFullContent(items, limit = 3) {
+    for (let i = 0; i < Math.min(items.length, limit); i++) {
+      const item = items[i];
+      item.fullContent = item.link ? (await this.fetchFullContent(item.link) || item.description || '') : (item.description || '');
+    }
   }
 
   // ===== 以下为辅助方法（原样保留） =====

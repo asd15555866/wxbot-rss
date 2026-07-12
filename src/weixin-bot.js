@@ -1,4 +1,5 @@
 import { DBManager } from './db-manager.js';
+import { sleep, getSiteNameFromUrl, callDeepSeekChat, sendHubMessage } from './utils.js';
 
 export class WeixinBot {
   constructor(db, env) {
@@ -68,57 +69,42 @@ export class WeixinBot {
           await this.sendRSSItem(ownerUserId, item, siteName);
           sentToPrivate = true;
         } else {
-          for (const chatId of chatIds) {
-            try {
-              const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
-              if (already) continue;
-              await this.sendRSSItem(chatId, item, siteName);
-              await this.dbManager.savePushRecord(rssUrl, item.guid, chatId);
-              sentToTargets++;
-              await new Promise(r => setTimeout(r, 200));
-            } catch (e) {
-              console.warn('推送到目标失败', chatId, e.message);
-            }
-          }
+          sentToTargets = await this.pushToTargets(rssUrl, item, siteName, chatIds);
         }
         break;
       case 'both':
         await this.sendRSSItem(ownerUserId, item, siteName);
         sentToPrivate = true;
-        for (const chatId of chatIds) {
-          try {
-            const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
-            if (already) continue;
-            await this.sendRSSItem(chatId, item, siteName);
-            await this.dbManager.savePushRecord(rssUrl, item.guid, chatId);
-            sentToTargets++;
-            await new Promise(r => setTimeout(r, 200));
-          } catch (e) {
-            console.warn('推送到目标失败', chatId, e.message);
-          }
-        }
+        sentToTargets = await this.pushToTargets(rssUrl, item, siteName, chatIds);
         break;
       case 'private':
         await this.sendRSSItem(ownerUserId, item, siteName);
         sentToPrivate = true;
         break;
       case 'targets':
-        for (const chatId of chatIds) {
-          try {
-            const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
-            if (already) continue;
-            await this.sendRSSItem(chatId, item, siteName);
-            await this.dbManager.savePushRecord(rssUrl, item.guid, chatId);
-            sentToTargets++;
-            await new Promise(r => setTimeout(r, 200));
-          } catch (e) {
-            console.warn('推送到目标失败', chatId, e.message);
-          }
-        }
+        sentToTargets = await this.pushToTargets(rssUrl, item, siteName, chatIds);
         break;
     }
     
     console.log(`推送完成：私聊${sentToPrivate ? '✅' : '❌'}, 目标${sentToTargets}个`);
+  }
+
+  // 向绑定的会话目标推送（去重 + 节流），返回成功推送的目标数
+  async pushToTargets(rssUrl, item, siteName, chatIds) {
+    let sentToTargets = 0;
+    for (const chatId of chatIds) {
+      try {
+        const already = await this.dbManager.hasPushedToChat(rssUrl, item.guid, chatId);
+        if (already) continue;
+        await this.sendRSSItem(chatId, item, siteName);
+        await this.dbManager.savePushRecord(rssUrl, item.guid, chatId);
+        sentToTargets++;
+        await sleep(200);
+      } catch (e) {
+        console.warn('推送到目标失败', chatId, e.message);
+      }
+    }
+    return sentToTargets;
   }
 
   // ===== AI 总结 =====
@@ -130,18 +116,9 @@ export class WeixinBot {
       console.error('❌ 环境变量 DEEPSEEK_API_KEY 未设置，无法生成 AI 摘要');
       return text.substring(0, 200) || '（无内容）';
     }
-    const AI_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
-    const response = await fetch(AI_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${AI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'system', content: `请用中文总结以下内容，要求：
+    return await callDeepSeekChat(AI_API_KEY, [
+      { role: 'system', content: `请用中文总结以下内容，要求：
 1. 自动判断内容类型（促销/教程/活动/新闻/其他）
 2. 根据类型选择最合适的展示格式：
    - 如果是 VPS/主机促销：用项目符号列出价格、配置、优惠
@@ -150,14 +127,8 @@ export class WeixinBot {
    - 如果是技术讨论：提炼主要观点和结论
 3. 使用 Markdown 列表（"- " 开头）让排版清晰
 4. 控制在 100-150 字左右，不丢失关键信息` },
-          { role: 'user', content: truncatedText }
-        ]
-      })
-    });
-
-    if (!response.ok) throw new Error(`AI API 请求失败: ${response.status}`);
-    const data = await response.json();
-    return data.choices[0].message.content.trim();
+      { role: 'user', content: truncatedText }
+    ]);
   }
 
   // ===== 标题翻译 =====
@@ -172,27 +143,12 @@ export class WeixinBot {
       console.error('❌ 环境变量 DEEPSEEK_API_KEY 未设置，无法翻译标题');
       return title;
     }
-    const AI_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
     try {
-      const response = await fetch(AI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${AI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: '你是一个翻译助手，请将用户提供的英文标题翻译成简洁流畅的中文，只输出翻译结果，不要添加任何额外说明。' },
-            { role: 'user', content: title }
-          ]
-        })
-      });
-
-      if (!response.ok) throw new Error(`翻译API请求失败: ${response.status}`);
-      const data = await response.json();
-      let translated = data.choices[0].message.content.trim();
+      const translated = await callDeepSeekChat(AI_API_KEY, [
+        { role: 'system', content: '你是一个翻译助手，请将用户提供的英文标题翻译成简洁流畅的中文，只输出翻译结果，不要添加任何额外说明。' },
+        { role: 'user', content: title }
+      ]);
       if (!translated) return title;
       return translated;
     } catch (error) {
@@ -204,38 +160,11 @@ export class WeixinBot {
   // ===== 微信推送 =====
 
   async sendViaILink(userId, message) {
-    const HUB_URL = this.env?.HUB_URL;
-    const APP_TOKEN = this.env?.APP_TOKEN;
-    
-    if (!HUB_URL || !APP_TOKEN) {
-      console.error('[sendViaILink] 缺少环境变量 HUB_URL 或 APP_TOKEN');
-      return;
-    }
-    
     const TO_USER_ID = 'o9cq80-CwnZEH3pANf4ct59vCTlo@im.wechat';
-    const payload = { to_user_id: TO_USER_ID, content: message };
-    const API_ENDPOINT = `${HUB_URL}/bot/v1/message/send`;
-
-    try {
-      const response = await fetch(API_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${APP_TOKEN}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[sendViaILink] 发送失败:', response.status, errorText);
-        return;
-      }
-
+    const response = await sendHubMessage(this.env, { to_user_id: TO_USER_ID, content: message });
+    if (response) {
       const result = await response.json();
       console.log('[sendViaILink] 发送成功:', result);
-    } catch (error) {
-      console.error('[sendViaILink] 调用 Hub API 出错:', error.message);
     }
   }
 
@@ -254,9 +183,6 @@ export class WeixinBot {
   }
 
   async extractSiteName(url) {
-    try {
-      const domain = new URL(url).hostname;
-      return domain.replace('www.', '');
-    } catch { return 'Unknown Site'; }
+    return getSiteNameFromUrl(url);
   }
 }

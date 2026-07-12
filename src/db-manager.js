@@ -1,3 +1,5 @@
+import { isUniqueConstraintError } from './utils.js';
+
 export class DBManager {
   constructor(db) {
     this.db = db;
@@ -77,7 +79,7 @@ export class DBManager {
       ).bind(userId, rssUrl, siteName).run();
       return true;
     } catch (error) {
-      if (error.message.includes('UNIQUE constraint failed')) {
+      if (isUniqueConstraintError(error)) {
         return false; // 已存在
       }
       throw error;
@@ -155,7 +157,7 @@ export class DBManager {
         added++;
       } catch (e) {
         // ignore unique constraint
-        if (!e.message.includes('UNIQUE')) throw e;
+        if (!isUniqueConstraintError(e)) throw e;
       }
     }
     return added;
@@ -183,7 +185,7 @@ export class DBManager {
       ).bind(rssUrl, itemGuid, chatId).run();
       return true;
     } catch (e) {
-      if (e.message.includes('UNIQUE')) return false;
+      if (isUniqueConstraintError(e)) return false;
       throw e;
     }
   }
@@ -293,7 +295,7 @@ export class DBManager {
         item.publishedAt || null
       ).run();
     } catch (error) {
-      if (!error.message.includes('UNIQUE constraint failed')) {
+      if (!isUniqueConstraintError(error)) {
         throw error;
       }
     }

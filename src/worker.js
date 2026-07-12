@@ -2,6 +2,7 @@ import { WeixinBot } from './weixin-bot.js';
 import { RSSParser } from './rss-parser.js';
 import { DBManager } from './db-manager.js';
 import { handleHubWebhook } from './hub-webhook.js';
+import { sleep } from './utils.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -91,7 +92,7 @@ export default {
                   for (const sub of subsForUrl) {
                     try {
                       await bot.sendRSSUpdate(sub.user_id, rssUrl, item, siteName);
-                      await new Promise(resolve => setTimeout(resolve, 150));
+                      await sleep(150);
                     } catch (error) {
                       console.error(`推送给用户 ${sub.user_id} 失败:`, error.message);
                     }
@@ -99,7 +100,7 @@ export default {
                   
                   await dbManager.saveRSSItem(rssUrl, item);
                   processedCount++;
-                  await new Promise(resolve => setTimeout(resolve, 300));
+                  await sleep(300);
                 } catch (error) {
                   console.error(`处理RSS项目失败:`, error.message);
                 }
@@ -131,7 +132,7 @@ export default {
         console.log(`批次 ${Math.floor(i/BATCH_SIZE) + 1} 完成: 成功${batchStats.success}, 跳过${batchStats.skipped}, 失败${batchStats.error}`);
         
         if (i + BATCH_SIZE < urls.length) {
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          await sleep(3000);
         }
       }
       

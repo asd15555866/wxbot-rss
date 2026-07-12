@@ -2,6 +2,7 @@
 import { WeixinBot } from './weixin-bot.js';
 import { DBManager } from './db-manager.js';
 import { RSSParser } from './rss-parser.js';
+import { sleep, getSiteNameFromUrl, sendHubMessage } from './utils.js';
 
 export async function handleHubWebhook(request, env) {
   const body = await request.json();
@@ -131,12 +132,10 @@ async function handleAddCommand(args, userId, env) {
     try {
       const items = await rssParser.parseRSS(url);
       if (items.length > 0) {
-        const domain = new URL(url).hostname;
-        siteName = domain.replace('www.', '');
+        siteName = getSiteNameFromUrl(url);
       }
     } catch (e) {
-      const domain = new URL(url).hostname;
-      siteName = domain.replace('www.', '');
+      siteName = getSiteNameFromUrl(url);
     }
     
     // 检查是否已订阅
@@ -244,7 +243,7 @@ async function handleCheckFeedsCommand(userId, env) {
             await bot.sendRSSUpdate(userId, sub.rss_url, item, sub.site_name);
             await dbManager.saveRSSItem(sub.rss_url, item);
             newCount++;
-            await new Promise(r => setTimeout(r, 300));
+            await sleep(300);
           }
         }
         
@@ -378,34 +377,12 @@ async function handleStatusCommand(userId, env) {
 // ===== 发送回复 =====
 
 async function sendHubReply(event, text, env) {
-  const HUB_URL = env.HUB_URL || 'https://hub.openilink.com';
-  const APP_TOKEN = env.APP_TOKEN;
   const to = event.event.data.sender?.id;
-  
-  if (!to || !APP_TOKEN) {
-    console.warn('缺少 to 或 APP_TOKEN，无法发送回复');
+
+  if (!to) {
+    console.warn('缺少 to，无法发送回复');
     return;
   }
-  
-  try {
-    const response = await fetch(`${HUB_URL}/bot/v1/message/send`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${APP_TOKEN}`
-      },
-      body: JSON.stringify({
-        to: to,
-        type: 'text',
-        content: text
-      })
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('发送 Hub 回复失败:', response.status, errorText);
-    }
-  } catch (error) {
-    console.error('发送 Hub 回复出错:', error.message);
-  }
+
+  await sendHubMessage(env, { to, type: 'text', content: text });
 }
